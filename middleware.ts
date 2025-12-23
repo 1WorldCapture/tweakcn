@@ -1,13 +1,23 @@
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { API_AUTH_PREFIX, DEFAULT_LOGIN_REDIRECT } from "./routes";
 
 export async function middleware(request: NextRequest) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  // Avoid DB access in middleware (Edge runtime). Delegate session lookup to the auth route handler.
+  let session: any = null;
+  try {
+    const res = await fetch(new URL(`${API_AUTH_PREFIX}/get-session`, request.url), {
+      method: "GET",
+      headers: request.headers,
+      cache: "no-store",
+    });
+
+    if (res.ok) {
+      session = await res.json();
+    }
+  } catch {
+    session = null;
+  }
 
   const pathname = request.nextUrl.pathname;
 
