@@ -3,6 +3,8 @@
 import Github from "@/assets/github.svg";
 import Google from "@/assets/google.svg";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ResponsiveDialog,
   ResponsiveDialogContent,
@@ -12,6 +14,7 @@ import {
 } from "@/components/ui/revola";
 import { PostLoginActionType } from "@/hooks/use-post-login-action";
 import { authClient } from "@/lib/auth-client";
+import { emailPasswordUiEnabled } from "@/lib/feature-flags";
 import { Loader2 } from "lucide-react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -73,6 +76,11 @@ export function AuthDialog({
   const [isSignIn, setIsSignIn] = useState(initialMode === "signin");
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [isGithubLoading, setIsGithubLoading] = useState(false);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const contextualCopy = getContextualCopy(postLoginActionType);
 
@@ -85,6 +93,10 @@ export function AuthDialog({
   useEffect(() => {
     if (open) {
       setIsSignIn(initialMode === "signin");
+      setEmail("");
+      setPassword("");
+      setConfirmPassword("");
+      setError(null);
     }
   }, [open, initialMode]);
 
@@ -98,6 +110,8 @@ export function AuthDialog({
     } catch (error) {
       console.error("Google Sign In Error:", error);
       // Handle error appropriately (e.g., show a toast notification)
+    } finally {
+      setIsGoogleLoading(false);
     }
   };
 
@@ -111,12 +125,57 @@ export function AuthDialog({
     } catch (error) {
       console.error("GitHub Sign In Error:", error);
       // Handle error appropriately
+    } finally {
+      setIsGithubLoading(false);
+    }
+  };
+
+  const handleEmailSignIn = async () => {
+    setIsEmailLoading(true);
+    setError(null);
+    try {
+      await authClient.signIn.email({
+        email,
+        password,
+        callbackURL: getCallbackUrl(),
+      });
+    } catch (error) {
+      console.error("Email Sign In Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to sign in");
+    } finally {
+      setIsEmailLoading(false);
+    }
+  };
+
+  const handleEmailSignUp = async () => {
+    if (password !== confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setIsEmailLoading(true);
+    setError(null);
+    try {
+      await authClient.signUp.email({
+        name: email.split("@")[0] || "User",
+        email,
+        password,
+        callbackURL: getCallbackUrl(),
+      });
+    } catch (error) {
+      console.error("Email Sign Up Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to sign up");
+    } finally {
+      setIsEmailLoading(false);
     }
   };
 
   const toggleMode = () => {
     setIsSignIn(!isSignIn);
+    setError(null);
   };
+
+  const anyLoading = isEmailLoading || isGoogleLoading || isGithubLoading;
 
   return (
     <ResponsiveDialog open={open} onOpenChange={onOpenChange}>
@@ -136,13 +195,89 @@ export function AuthDialog({
           </ResponsiveDialogHeader>
 
           <div className="space-y-6 p-6 pt-2">
+            {emailPasswordUiEnabled && (
+              <form
+                className="space-y-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (isSignIn) {
+                    void handleEmailSignIn();
+                    return;
+                  }
+                  void handleEmailSignUp();
+                }}
+              >
+                <div className="space-y-2">
+                  <Label htmlFor="auth-email">Email</Label>
+                  <Input
+                    id="auth-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    required
+                    disabled={anyLoading}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="auth-password">Password</Label>
+                  <Input
+                    id="auth-password"
+                    type="password"
+                    autoComplete={isSignIn ? "current-password" : "new-password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    disabled={anyLoading}
+                  />
+                </div>
+
+                {!isSignIn && (
+                  <div className="space-y-2">
+                    <Label htmlFor="auth-confirm-password">Confirm password</Label>
+                    <Input
+                      id="auth-confirm-password"
+                      type="password"
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      disabled={anyLoading}
+                    />
+                  </div>
+                )}
+
+                {error && <p className="text-destructive text-sm">{error}</p>}
+
+                <Button size="lg" className="w-full" type="submit" disabled={anyLoading}>
+                  <span className="font-medium">
+                    {isSignIn ? "Sign in with email" : "Create account with email"}
+                  </span>
+                  {isEmailLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                </Button>
+              </form>
+            )}
+
             <div className="space-y-3">
+              {emailPasswordUiEnabled && (
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-muted text-muted-foreground px-2">Or continue with</span>
+                  </div>
+                </div>
+              )}
+
               <Button
                 size="lg"
                 variant="outline"
                 onClick={handleGoogleSignIn}
                 className="hover:bg-primary/10 hover:text-foreground flex w-full items-center justify-center gap-2"
-                disabled={isGoogleLoading || isGithubLoading}
+                disabled={anyLoading}
               >
                 <Google className="h-5 w-5" />
                 <span className="font-medium">Continue with Google</span>
@@ -154,7 +289,7 @@ export function AuthDialog({
                 onClick={handleGithubSignIn}
                 size="lg"
                 className="hover:bg-primary/10 hover:text-foreground flex w-full items-center justify-center gap-2"
-                disabled={isGoogleLoading || isGithubLoading}
+                disabled={anyLoading}
               >
                 <Github className="h-5 w-5" />
                 <span className="font-medium">Continue with GitHub</span>

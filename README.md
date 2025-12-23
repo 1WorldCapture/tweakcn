@@ -59,13 +59,33 @@ cd tweakcn
 npm install
 ```
 
-3. Start the development server:
+3. Configure environment:
+
+- Copy `.env.example` to `.env.local`
+- Set `DATABASE_URL`
+- Set `DATABASE_TYPE`:
+  - `DATABASE_TYPE="neon"` for Neon (hosted)
+  - `DATABASE_TYPE="postgres"` for self-hosted Postgres (e.g. local docker)
+
+4. If using local Postgres, start the DB and initialize tables:
+
+```bash
+docker compose up -d db
+pnpm db:push
+```
+
+5. (Optional) Dev-only email/password auth (no SSO):
+
+- Set `ENABLE_EMAIL_PASSWORD_AUTH="true"` and `NEXT_PUBLIC_ENABLE_EMAIL_PASSWORD_AUTH="true"` in `.env.local`
+- This is forced off in production; see `docs/dev-email-password-auth-memo.md`
+
+6. Start the development server:
 
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+7. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Contributors
 
