@@ -66,6 +66,18 @@ npm install
 - Set `DATABASE_TYPE`:
   - `DATABASE_TYPE="neon"` for Neon (hosted)
   - `DATABASE_TYPE="postgres"` for self-hosted Postgres (e.g. local docker)
+- Configure AI provider/model (server-only):
+  - Set `AI_PROVIDER`: `google | openai | openai-compatible | groq` (default: `google`)
+  - Set model id for the selected provider:
+    - `GOOGLE_AI_MODEL` (default: `gemini-2.5-flash`)
+    - `OPENAI_AI_MODEL` (default: `gpt-4o-mini`)
+    - `OPENAI_COMPATIBLE_AI_MODEL` (required when `AI_PROVIDER=openai-compatible`)
+    - `GROQ_AI_MODEL` (default: `llama3-70b-8192`)
+  - Set required API keys:
+    - `google`: `GOOGLE_API_KEY`
+    - `openai`: `OPENAI_API_KEY`
+    - `openai-compatible`: `AI_BASE_URL`, `AI_API_KEY` (and optional `AI_PROVIDER_NAME`) — model must support structured outputs
+    - `groq`: `GROQ_API_KEY`
 
 4. If using local Postgres, start the DB and initialize tables:
 

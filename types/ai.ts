@@ -1,4 +1,5 @@
 import { THEME_GENERATION_TOOLS } from "@/lib/ai/generate-theme/tools";
+import { LangSmithToolContext } from "@/lib/observability/langsmith";
 import { DeepPartial, InferUITools, UIMessage, UIMessageStreamWriter } from "ai";
 import { ThemeStylesWithoutSpacing, type ThemeStyleProps, type ThemeStyles } from "./theme";
 
@@ -24,6 +25,8 @@ export type AIPromptData = {
 export type MyMetadata = {
   promptData?: AIPromptData;
   themeStyles?: ThemeStyles;
+  requestId?: string;
+  conversationId?: string;
 };
 
 export type MyUIDataParts = {
@@ -43,4 +46,7 @@ export type MyUITools = ThemeGenerationUITools;
 
 export type ChatMessage = UIMessage<MyMetadata, MyUIDataParts, MyUITools>;
 
-export type AdditionalAIContext = { writer: UIMessageStreamWriter<ChatMessage> };
+export type AdditionalAIContext = {
+  writer: UIMessageStreamWriter<ChatMessage>;
+  langsmith?: LangSmithToolContext;
+};
