@@ -1,16 +1,23 @@
 import { recordAIUsage } from "@/actions/ai-usage";
 import { THEME_GENERATION_TOOLS } from "@/lib/ai/generate-theme/tools";
 import { GENERATE_THEME_SYSTEM } from "@/lib/ai/prompts";
-import { getAIModel, getAIProviderOptions } from "@/lib/ai/providers";
+import { getAIModel, getAIProviderOptions, getResolvedAIConfig } from "@/lib/ai/providers";
 import { handleError } from "@/lib/error-response";
+import {
+  getAISDKMethods,
+  createLangSmithOptions,
+  mergeProviderOptions,
+  createLangSmithToolContext,
+  type LangSmithContext,
+} from "@/lib/observability/langsmith";
 import { getCurrentUserId, logError } from "@/lib/shared";
 import { validateSubscriptionAndUsage } from "@/lib/subscription";
-import { AdditionalAIContext, ChatMessage } from "@/types/ai";
+import { AdditionalAIContext, ChatMessage, MyMetadata } from "@/types/ai";
 import { SubscriptionRequiredError } from "@/types/errors";
 import { convertMessagesToModelMessages } from "@/utils/ai/message-converter";
 import { Ratelimit } from "@upstash/ratelimit";
 import { kv } from "@vercel/kv";
-import { createUIMessageStream, createUIMessageStreamResponse, stepCountIs, streamText } from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse, stepCountIs } from "ai";
 import { headers } from "next/headers";
 import { NextRequest } from "next/server";
 
@@ -51,23 +58,53 @@ export async function POST(req: NextRequest) {
     const { messages }: { messages: ChatMessage[] } = await req.json();
     const modelMessages = await convertMessagesToModelMessages(messages);
 
+    // Extract requestId and conversationId from the last user message metadata
+    const lastUserMessage = messages.findLast((m) => m.role === "user");
+    const { requestId, conversationId } = (lastUserMessage?.metadata as MyMetadata & {
+      requestId?: string;
+      conversationId?: string;
+    }) ?? {};
+
+    const { streamText } = getAISDKMethods();
+    const { provider, modelId } = getResolvedAIConfig();
+    const model = getAIModel();
+
+    // Build LangSmith context for this request
+    const lsContext: LangSmithContext = {
+      requestId,
+      conversationId,
+      userId: userId ?? undefined,
+      route: "/api/generate-theme",
+      provider,
+      modelId,
+    };
+
+    const langsmithOptions = createLangSmithOptions(lsContext, "generate-theme", {
+      messageCount: messages.length,
+    });
+
+    const baseProviderOptions = getAIProviderOptions();
+    const providerOptions = mergeProviderOptions(baseProviderOptions, langsmithOptions);
+
     const stream = createUIMessageStream<ChatMessage>({
       execute: ({ writer }) => {
-        const context: AdditionalAIContext = { writer };
-        const model = getAIModel();
+        const context: AdditionalAIContext = {
+          writer,
+          langsmith: createLangSmithToolContext(lsContext),
+        };
 
         const result = streamText({
           abortSignal: req.signal,
           model: model,
-          providerOptions: getAIProviderOptions(),
+          providerOptions,
           system: GENERATE_THEME_SYSTEM,
           messages: modelMessages,
           tools: THEME_GENERATION_TOOLS,
           stopWhen: stepCountIs(5),
-          onError: (error) => {
-            if (error instanceof Error) console.error(error);
+          onError: (error: { error: unknown }) => {
+            if (error.error instanceof Error) console.error(error.error);
           },
-          onFinish: async (result) => {
+          onFinish: async (result: { totalUsage: { inputTokens: number; outputTokens: number } }) => {
             const { totalUsage } = result;
             try {
               await recordAIUsage({
@@ -84,7 +121,7 @@ export async function POST(req: NextRequest) {
 
         writer.merge(
           result.toUIMessageStream({
-            messageMetadata: ({ part }) => {
+            messageMetadata: ({ part }: { part: { type: string; toolName?: string; output?: unknown } }) => {
               // `toolName` is not typed for some reason, must be kept in sync with the actual tool names
               if (part.type === "tool-result" && part.toolName === "generateTheme") {
                 return { themeStyles: part.output };

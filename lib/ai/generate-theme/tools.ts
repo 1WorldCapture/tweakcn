@@ -1,7 +1,12 @@
 import { themeStylesOutputSchema } from "@/lib/ai/generate-theme";
-import { getAIModel, getAIProviderOptions } from "@/lib/ai/providers";
+import { getAIModel, getAIProviderOptions, getResolvedAIConfig } from "@/lib/ai/providers";
+import {
+  getAISDKMethods,
+  createLangSmithOptions,
+  mergeProviderOptions,
+} from "@/lib/observability/langsmith";
 import { AdditionalAIContext } from "@/types/ai";
-import { streamObject, tool } from "ai";
+import { tool } from "ai";
 import z from "zod";
 
 export const THEME_GENERATION_TOOLS = {
@@ -10,12 +15,27 @@ export const THEME_GENERATION_TOOLS = {
     inputSchema: z.object({}),
     outputSchema: themeStylesOutputSchema,
     execute: async (_input, { messages, abortSignal, toolCallId, experimental_context }) => {
-      const { writer } = experimental_context as AdditionalAIContext;
+      const { writer, langsmith } = experimental_context as AdditionalAIContext;
+
+      const { streamObject } = getAISDKMethods();
+      const { provider, modelId } = getResolvedAIConfig();
+
+      // Build LangSmith options for the tool's streamObject call
+      const langsmithOptions = langsmith?.enabled && langsmith.context
+        ? createLangSmithOptions(
+            { ...langsmith.context, route: "/api/generate-theme/tool" },
+            "generate-theme-tool",
+            { provider, modelId }
+          )
+        : undefined;
+
+      const baseProviderOptions = getAIProviderOptions();
+      const providerOptions = mergeProviderOptions(baseProviderOptions, langsmithOptions);
 
       const { partialObjectStream, object } = streamObject({
         abortSignal,
         model: getAIModel(),
-        providerOptions: getAIProviderOptions(),
+        providerOptions,
         schema: themeStylesOutputSchema,
         messages,
       });

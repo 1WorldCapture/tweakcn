@@ -8,11 +8,16 @@ import { AIPromptData } from "@/types/ai";
 import { convertPromptDataToJSONContent } from "@/utils/ai/ai-prompt";
 import { useCompletion } from "@ai-sdk/react";
 import { JSONContent } from "@tiptap/react";
+import cuid from "cuid";
 import posthog from "posthog-js";
 import { useCallback, useMemo, useRef } from "react";
 
 export function useAIEnhancePrompt() {
   const { openGetProDialog } = useGetProDialogStore();
+
+  // Generate a stable conversationId for this hook instance
+  const conversationIdRef = useRef<string>(cuid());
+
   const { complete, completion, isLoading, stop, setCompletion } = useCompletion({
     api: "/api/enhance-prompt",
     onError: (error) => {
@@ -24,6 +29,8 @@ export function useAIEnhancePrompt() {
           message: normalized.message,
           code: normalized.code,
           status: normalized.status,
+          requestId: currentRequestIdRef.current,
+          conversationId: conversationIdRef.current,
         });
       } catch {}
 
@@ -43,6 +50,8 @@ export function useAIEnhancePrompt() {
         posthog.capture("ENHANCE_PROMPT_FINISH", {
           durationMs,
           finalLength: finalCompletion?.length ?? 0,
+          requestId: currentRequestIdRef.current,
+          conversationId: conversationIdRef.current,
         });
       } catch {}
 
@@ -61,6 +70,7 @@ export function useAIEnhancePrompt() {
 
   const activeMentionsRef = useRef<Array<{ id: string; label: string }>>([]);
   const startTimeRef = useRef<number | null>(null);
+  const currentRequestIdRef = useRef<string | null>(null);
 
   const enhancedPromptAsJsonContent: JSONContent | undefined = useMemo(() => {
     if (!completion) return undefined;
@@ -87,15 +97,27 @@ export function useAIEnhancePrompt() {
       activeMentionsRef.current =
         promptData?.mentions?.map((m) => ({ id: m.id, label: m.label })) ?? [];
 
+      // Generate a new requestId for each request
+      const requestId = cuid();
+      currentRequestIdRef.current = requestId;
+
       try {
         posthog.capture("ENHANCE_PROMPT_START", {
           contentLength: prompt.length,
           mentionCount: promptData?.mentions?.length ?? 0,
           imageCount: promptData?.images?.length ?? 0,
+          requestId,
+          conversationId: conversationIdRef.current,
         });
       } catch {}
 
-      await complete(prompt, { body: { promptData } });
+      await complete(prompt, {
+        body: {
+          promptData,
+          requestId,
+          conversationId: conversationIdRef.current,
+        },
+      });
     },
     [complete, isLoading, stop, setCompletion]
   );
@@ -109,7 +131,11 @@ export function useAIEnhancePrompt() {
 
     try {
       const durationMs = startTimeRef.current ? Date.now() - startTimeRef.current : undefined;
-      posthog.capture("ENHANCE_PROMPT_CANCEL", { durationMs });
+      posthog.capture("ENHANCE_PROMPT_CANCEL", {
+        durationMs,
+        requestId: currentRequestIdRef.current,
+        conversationId: conversationIdRef.current,
+      });
     } catch {}
   }, [stop, enhancedPromptAsJsonContent]);
 
@@ -119,5 +145,6 @@ export function useAIEnhancePrompt() {
     enhancedPrompt: completion,
     enhancedPromptAsJsonContent,
     isEnhancingPrompt: isLoading,
+    conversationId: conversationIdRef.current,
   } as const;
 }
